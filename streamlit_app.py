@@ -1,138 +1,137 @@
 import streamlit as st
 import numpy as np
-import re
+import textstat
+
 from catboost import CatBoostRegressor
-from PIL import Image
-import cv2
-import tempfile
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-# ----------------------------
-# Load model
-# ----------------------------
-model = CatBoostRegressor()
-model.load_model("ctr_model.cbm")
+# =====================================================
+# PAGE CONFIG
+# =====================================================
+st.set_page_config(
+    page_title="CTR Prediction System",
+    layout="centered"
+)
 
-# ----------------------------
-# Keyword weights
-# ----------------------------
-keyword_weight = {
-    "buy": 0.12, "order": 0.12, "purchase": 0.12, "shop": 0.12, "now": 0.12,
-    "sale": 0.08, "deal": 0.08, "discount": 0.08,
-    "limited": 0.06, "today": 0.06,
-    "official": 0.05, "trusted": 0.05,
-    "freedelivery": 0.04, "fastdelivery": 0.04
+st.title("📊 CTR Prediction System")
+st.write(
+    "Predict **Click-Through Rate (CTR)** for ad creatives using "
+    "semantic and linguistic features."
+)
+
+# =====================================================
+# LOAD MODEL (CACHED)
+# =====================================================
+@st.cache_resource
+def load_model():
+    model = CatBoostRegressor()
+    model.load_model("catboost_ctr_model.cbm")
+    return model
+
+model = load_model()
+
+# =====================================================
+# NLP TOOLS (PYTORCH-FREE)
+# =====================================================
+vader = SentimentIntensityAnalyzer()
+
+PERSUASION_ANCHORS = [
+    "limited time offer",
+    "exclusive deal just for you",
+    "win big prizes",
+    "best price guaranteed",
+    "don’t miss this opportunity",
+    "start your journey today"
+]
+
+vectorizer = TfidfVectorizer(
+    ngram_range=(1, 2),
+    stop_words="english"
+)
+
+anchor_vectors = vectorizer.fit_transform(PERSUASION_ANCHORS)
+
+CTA_WORDS = {
+    "buy", "shop", "order", "sign up", "signup", "register",
+    "download", "click", "start", "get", "try", "apply",
+    "claim", "win", "join", "subscribe", "book"
 }
 
-# ----------------------------
-# Feature extractor (TEXT)
-# ----------------------------
-def extract_text_features(text):
-    tokens = re.findall(r"[a-zA-Z]+", text.lower())
+# =====================================================
+# FEATURE FUNCTIONS (IDENTICAL TO FASTAPI)
+# =====================================================
+def clean_text(text: str) -> str:
+    return " ".join(text.replace("\n", " ").split())
 
-    action = deal = urgency = trust = convenience = social = 0
-    score = 0.0
 
-    for w in tokens:
-        if w in ["buy", "order", "purchase", "shop", "now", "checkout"]:
-            action += 1
-        elif w in ["sale", "deal", "discount", "coupon", "promo", "cashback"]:
-            deal += 1
-        elif w in ["limited", "today", "hurry"]:
-            urgency += 1
-        elif w in ["official", "trusted", "verified", "warranty"]:
-            trust += 1
-        elif w in ["freedelivery", "fastdelivery", "express"]:
-            convenience += 1
-        elif w in ["bestseller", "reviews", "ratings"]:
-            social += 1
+def capital_ratio(text: str) -> float:
+    words = text.split()
+    if not words:
+        return 0.0
+    caps = sum(1 for w in words if w.isupper() and len(w) > 1)
+    return min(caps / len(words), 0.6)
 
-        score += keyword_weight.get(w, 0)
 
-    return np.array([[action, deal, urgency, trust, convenience, social, score, len(tokens)]])
+def sentiment_score(text: str) -> float:
+    return (vader.polarity_scores(text)["compound"] + 1) / 2
 
-# ----------------------------
-# Image feature extractors
-# ----------------------------
-def image_brightness(img):
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    return np.mean(gray)
 
-def image_contrast(img):
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    return gray.std()
+def persuasion_score(text: str) -> float:
+    vec = vectorizer.transform([text])
+    return float(cosine_similarity(vec, anchor_vectors).max())
 
-# ----------------------------
-# Streamlit UI
-# ----------------------------
-st.set_page_config(page_title="CTR Prediction System", layout="centered")
 
-st.title("📊 Multimodal CTR Prediction System")
-st.write("Predict Click-Through Rate for **Text, Image, and Video Ads**")
+def cta_score(text: str) -> float:
+    t = text.lower()
+    hits = sum(1 for w in CTA_WORDS if w in t)
+    return min(hits / 3, 1.0)
 
-tab1, tab2, tab3 = st.tabs(["📝 Text Ad", "🖼️ Image Ad", "🎥 Video Ad"])
 
-# ----------------------------
-# TEXT AD TAB
-# ----------------------------
-with tab1:
-    st.subheader("Text Advertisement")
-    text_ad = st.text_area("Enter Ad Text")
+def readability_score(text: str) -> float:
+    try:
+        score = textstat.flesch_reading_ease(text)
+        return max(0.0, min(score / 100, 1.0))
+    except Exception:
+        return 0.5
 
-    if st.button("Predict CTR (Text Ad)"):
-        if text_ad.strip():
-            X = extract_text_features(text_ad)
-            ctr = model.predict(X)[0]
-            ctr = float(np.clip(ctr, 0.005, 0.25))
-            st.success(f"Predicted CTR: {ctr*100:.2f}%")
-        else:
-            st.warning("Please enter ad text")
+# =====================================================
+# UI – TEXT AD PREDICTION
+# =====================================================
+st.subheader("📝 Text Advertisement")
 
-# ----------------------------
-# IMAGE AD TAB
-# ----------------------------
-with tab2:
-    st.subheader("Image Advertisement")
-    image_file = st.file_uploader("Upload Ad Image", type=["png", "jpg", "jpeg"])
+text_ad = st.text_area(
+    "Enter ad text",
+    placeholder="LIMITED TIME OFFER Buy now and save big"
+)
 
-    if image_file:
-        image = Image.open(image_file)
-        st.image(image, caption="Uploaded Ad Image", use_column_width=True)
+if st.button("Predict CTR"):
+    if text_ad.strip():
+        text = clean_text(text_ad)
 
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            image.save(tmp.name)
-            img = cv2.imread(tmp.name)
+        # SAME FEATURE ORDER AS TRAINING
+        features = np.array([[
+            sentiment_score(text),
+            capital_ratio(text),
+            persuasion_score(text),
+            cta_score(text),
+            readability_score(text)
+        ]], dtype=np.float32)
 
-        brightness = image_brightness(img)
-        contrast = image_contrast(img)
+        ctr = float(model.predict(features)[0])
+        ctr = np.clip(ctr, 0.0, 1.0)
 
-        if st.button("Predict CTR (Image Ad)"):
-            # Simple heuristic until retraining with image features
-            base_ctr = 0.05
-            visual_boost = min((contrast / 100) + (brightness / 255), 0.2)
-            ctr = base_ctr + visual_boost
-            ctr = float(np.clip(ctr, 0.01, 0.3))
+        st.success(f"🎯 **Predicted CTR: {ctr * 100:.2f}%**")
 
-            st.success(f"Predicted CTR: {ctr*100:.2f}%")
-            st.caption(f"Brightness: {brightness:.1f}, Contrast: {contrast:.1f}")
+        with st.expander("🔍 Feature Breakdown"):
+            st.write({
+                "Sentiment Score": round(sentiment_score(text), 3),
+                "Capital Ratio": round(capital_ratio(text), 3),
+                "Persuasion Score": round(persuasion_score(text), 3),
+                "CTA Score": round(cta_score(text), 3),
+                "Readability Score": round(readability_score(text), 3)
+            })
 
-# ----------------------------
-# VIDEO AD TAB
-# ----------------------------
-with tab3:
-    st.subheader("Video Advertisement")
-    video_file = st.file_uploader("Upload Ad Video", type=["mp4", "mov", "avi"])
-
-    if video_file:
-        st.video(video_file)
-
-        st.info(
-            "Video CTR prediction requires:\n"
-            "- Key frame extraction\n"
-            "- OCR on frames\n"
-            "- Motion & audio analysis\n\n"
-            "This module is intentionally kept as a placeholder."
-        )
-
-        if st.button("Predict CTR (Video Ad)"):
-            ctr = np.random.uniform(0.05, 0.2)
-            st.success(f"Estimated CTR: {ctr*100:.2f}%")
+    else:
+        st.warning("Please enter ad text.")

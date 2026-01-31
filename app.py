@@ -1,83 +1,124 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from catboost import CatBoostRegressor
-import re
 import numpy as np
+import textstat
 
-app = FastAPI()
+from catboost import CatBoostRegressor
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-# Load model once (VERY IMPORTANT)
+
+# --------------------
+# App
+# --------------------
+app = FastAPI(title="CTR Prediction API")
+
+# --------------------
+# Load trained model
+# --------------------
 model = CatBoostRegressor()
-model.load_model("ctr_model.cbm")
-print("Model loaded successfully")
+model.load_model("catboost_ctr_model.cbm")
+print("CatBoost model loaded")
 
+# --------------------
+# NLP tools (PyTorch-free)
+# --------------------
+vader = SentimentIntensityAnalyzer()
 
-# keyword weights (same as training)
-keyword_weight = {
-    "buy": 0.12, "order": 0.12, "purchase": 0.12, "shop": 0.12, "now": 0.12,
-    "sale": 0.08, "deal": 0.08, "discount": 0.08,
-    "limited": 0.06, "today": 0.06,
-    "official": 0.05, "trusted": 0.05,
-    "freedelivery": 0.04, "fastdelivery": 0.04
+PERSUASION_ANCHORS = [
+    "limited time offer",
+    "exclusive deal just for you",
+    "win big prizes",
+    "best price guaranteed",
+    "don’t miss this opportunity",
+    "start your journey today"
+]
+
+vectorizer = TfidfVectorizer(
+    ngram_range=(1, 2),
+    stop_words="english"
+)
+anchor_vectors = vectorizer.fit_transform(PERSUASION_ANCHORS)
+
+CTA_WORDS = {
+    "buy", "shop", "order", "sign up", "signup", "register",
+    "download", "click", "start", "get", "try", "apply",
+    "claim", "win", "join", "subscribe", "book"
 }
 
-# feature extractor (MUST MATCH TRAINING)
-def extract_features(ad_text: str):
-    tokens = re.findall(r"[a-zA-Z]+", ad_text.lower())
-
-    action_cnt = 0
-    deal_cnt = 0
-    urgency_cnt = 0
-    trust_cnt = 0
-    convenience_cnt = 0
-    socialproof_cnt = 0
-    total_keyword_score = 0.0
-
-    for word in tokens:
-        if word in ["buy", "order", "purchase", "shop", "now", "checkout"]:
-            action_cnt += 1
-        elif word in ["sale", "deal", "discount", "coupon", "promo", "cashback", "clearance"]:
-            deal_cnt += 1
-        elif word in ["limited", "hurry", "lastchance", "endingsoon", "flashsale", "today"]:
-            urgency_cnt += 1
-        elif word in ["original", "genuine", "official", "trusted", "verified", "warranty"]:
-            trust_cnt += 1
-        elif word in ["freedelivery", "freeshipping", "fastdelivery", "instant", "express"]:
-            convenience_cnt += 1
-        elif word in ["bestseller", "toprated", "reviews", "ratings", "recommended"]:
-            socialproof_cnt += 1
-
-        total_keyword_score += keyword_weight.get(word, 0)
-
-    ad_length = len(tokens)
-
-    # IMPORTANT: feature order MUST match training
-    return np.array([[
-        action_cnt,
-        deal_cnt,
-        urgency_cnt,
-        trust_cnt,
-        convenience_cnt,
-        socialproof_cnt,
-        total_keyword_score,
-        ad_length
-    ]])
-
-
-
+# --------------------
+# Request schema
+# --------------------
 class AdRequest(BaseModel):
-    ad_text: str
+    text: str
 
+
+# --------------------
+# Feature functions (MATCH TRAINING)
+# --------------------
+def clean_text(text: str) -> str:
+    return " ".join(text.replace("\n", " ").split())
+
+
+def capital_ratio(text: str) -> float:
+    words = text.split()
+    if not words:
+        return 0.0
+    caps = sum(1 for w in words if w.isupper() and len(w) > 1)
+    return min(caps / len(words), 0.6)
+
+
+def sentiment_score(text: str) -> float:
+    # [-1, 1] → [0, 1]
+    return (vader.polarity_scores(text)["compound"] + 1) / 2
+
+
+def persuasion_score(text: str) -> float:
+    vec = vectorizer.transform([text])
+    return float(cosine_similarity(vec, anchor_vectors).max())
+
+
+def cta_score(text: str) -> float:
+    t = text.lower()
+    hits = sum(1 for w in CTA_WORDS if w in t)
+    return min(hits / 3, 1.0)
+
+
+def readability_score(text: str) -> float:
+    try:
+        score = textstat.flesch_reading_ease(text)
+        return max(0.0, min(score / 100, 1.0))
+    except Exception:
+        return 0.5
+
+
+# --------------------
+# API endpoint
+# --------------------
 @app.post("/predict")
 def predict_ctr(req: AdRequest):
-    X = extract_features(req.ad_text)
+    text = clean_text(req.text)
 
-    ctr = model.predict(X)[0]
-    ctr = float(np.clip(ctr, 0.005, 0.25))
+    # EXACT feature order used during training
+    features = np.array([[
+        sentiment_score(text),
+        capital_ratio(text),
+        persuasion_score(text),
+        cta_score(text),
+        readability_score(text)
+    ]], dtype=np.float32)
+
+    ctr = float(model.predict(features)[0])
 
     return {
-        "ad_text": req.ad_text,
-        "predicted_ctr": round(ctr, 4),
-        "predicted_ctr_percent": round(ctr * 100, 2)
+        "predicted_ctr": round(np.clip(ctr, 0.0, 1.0), 4)
     }
 
+
+# --------------------
+# Windows-safe startup
+# --------------------
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
