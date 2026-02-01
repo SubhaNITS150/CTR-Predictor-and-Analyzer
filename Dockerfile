@@ -1,20 +1,41 @@
+# -----------------------------
+# Base image
+# -----------------------------
 FROM python:3.10-slim
 
-WORKDIR /app
-
-# 🔥 REQUIRED for CatBoost (OpenMP runtime)
+# -----------------------------
+# System dependencies
+# -----------------------------
 RUN apt-get update && apt-get install -y \
+    tesseract-ocr \
+    libtesseract-dev \
+    libgl1 \
+    libglib2.0-0 \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python deps
-COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+# -----------------------------
+# Set working directory
+# -----------------------------
+WORKDIR /app
 
-# Copy app + model
+# -----------------------------
+# Install Python dependencies
+# -----------------------------
+COPY requirements.txt .
+RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
+
+# -----------------------------
+# Copy application code + model
+# -----------------------------
 COPY . .
 
-EXPOSE 8501
+# -----------------------------
+# Expose port (Render uses 10000)
+# -----------------------------
+EXPOSE 10000
 
-CMD ["streamlit", "run", "streamlit_app.py", "--server.address=0.0.0.0", "--server.port=8501"]
-
+# -----------------------------
+# Start FastAPI
+# -----------------------------
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "10000"]

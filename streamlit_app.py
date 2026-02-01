@@ -7,9 +7,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# =====================================================
-# PAGE CONFIG
-# =====================================================
+
 st.set_page_config(
     page_title="CTR Prediction System",
     layout="centered"
@@ -21,9 +19,6 @@ st.write(
     "semantic and linguistic features."
 )
 
-# =====================================================
-# LOAD MODEL (CACHED)
-# =====================================================
 @st.cache_resource
 def load_model():
     model = CatBoostRegressor()
@@ -32,9 +27,7 @@ def load_model():
 
 model = load_model()
 
-# =====================================================
-# NLP TOOLS (PYTORCH-FREE)
-# =====================================================
+
 vader = SentimentIntensityAnalyzer()
 
 PERSUASION_ANCHORS = [
@@ -59,9 +52,7 @@ CTA_WORDS = {
     "claim", "win", "join", "subscribe", "book"
 }
 
-# =====================================================
-# FEATURE FUNCTIONS (IDENTICAL TO FASTAPI)
-# =====================================================
+
 def clean_text(text: str) -> str:
     return " ".join(text.replace("\n", " ").split())
 
@@ -96,9 +87,7 @@ def readability_score(text: str) -> float:
     except Exception:
         return 0.5
 
-# =====================================================
-# UI – TEXT AD PREDICTION
-# =====================================================
+
 st.subheader("📝 Text Advertisement")
 
 text_ad = st.text_area(
@@ -110,7 +99,6 @@ if st.button("Predict CTR"):
     if text_ad.strip():
         text = clean_text(text_ad)
 
-        # SAME FEATURE ORDER AS TRAINING
         features = np.array([[
             sentiment_score(text),
             capital_ratio(text),

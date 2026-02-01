@@ -9,3 +9,5 @@ opencv-python-headless
 pillow
 fastapi
 uvicorn
+pytesseract
+python-multipart
