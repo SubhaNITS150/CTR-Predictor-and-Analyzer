@@ -155,11 +155,13 @@ def predict_text_ad(req: TextAdRequest):
     ]], dtype=np.float32)
 
     ctr = float(model.predict(features)[0])
+    ctr_pct = np.clip(ctr * 100, 0.0, 100.0)
 
     return {
         "input_type": "text",
-        "predicted_ctr": round(np.clip(ctr, 0.0, 1.0), 4)
+        "predicted_ctr": round(ctr_pct, 2)  
     }
+
 
 
 # ======================================================
@@ -193,12 +195,14 @@ async def predict_image_ad(file: UploadFile = File(...)):
     features = np.array([text_feats + img_feats], dtype=np.float32)
 
     ctr = float(model.predict(features)[0])
+    ctr_pct = np.clip(ctr * 100, 0.0, 100.0)
 
     return {
         "input_type": "image",
         "ocr_text": ocr_text,
-        "predicted_ctr": round(np.clip(ctr, 0.0, 1.0), 4)
+        "predicted_ctr": round(ctr_pct, 2) 
     }
+
 
 
 # --------------------
