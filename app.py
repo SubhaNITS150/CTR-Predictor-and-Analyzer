@@ -12,11 +12,21 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+from fastapi.middleware.cors import CORSMiddleware
 
 # --------------------
 # App
 # --------------------
 app = FastAPI(title="Multimodal CTR Prediction API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # --------------------
 # Load model
