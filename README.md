@@ -46,7 +46,7 @@ This project develops an intelligent engine for analyzing ad text with the help 
     
 ## Demo
 
-[https://ctr-streamlit.onrender.com/](https://ctr-predictor-frontend.vercel.app/)
+[https://ctr-predictor-frontend.vercel.app/]
 ## Documentation
 
 ## 🐳 Run the Project Using Docker
