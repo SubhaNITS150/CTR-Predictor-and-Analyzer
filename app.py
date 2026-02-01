@@ -107,6 +107,14 @@ def readability_score(text: str) -> float:
     except Exception:
         return 0.5
 
+def ctr_label(ctr_pct: float) -> str:
+    if ctr_pct >= 40:
+        return "High CTR Potential"
+    elif ctr_pct >= 25:
+        return "Moderate CTR Potential"
+    else:
+        return "Low CTR Potential"
+
 
 def extract_image_features(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -143,25 +151,36 @@ def predict_text_ad(req: TextAdRequest):
 
     text = clean_text(req.text)
 
-    features = np.array([[
-        sentiment_score(text),
-        capital_ratio(text),
-        persuasion_score(text),
-        cta_score(text),
-        readability_score(text),
+    text_features = {
+        "sentiment_score": sentiment_score(text),
+        "capital_ratio": capital_ratio(text),
+        "persuasion_score": persuasion_score(text),
+        "cta_score": cta_score(text),
+        "readability_score": readability_score(text),
+    }
 
-        # Image defaults
-        0.5, 0.5, 0.5, 0.5, 0
+    image_defaults = {
+        "brightness": 0.5,
+        "contrast": 0.5,
+        "sharpness": 0.5,
+        "edge_density": 0.5,
+        "face_present": 0
+    }
+
+    features_array = np.array([[ 
+        *text_features.values(),
+        *image_defaults.values()
     ]], dtype=np.float32)
 
-    ctr = float(model.predict(features)[0])
+    ctr = float(model.predict(features_array)[0])
     ctr_pct = np.clip(ctr * 100, 0.0, 100.0)
 
     return {
         "input_type": "text",
-        "predicted_ctr": round(ctr_pct, 2)  
+        "predicted_ctr": round(ctr_pct, 2),
+        "ctr_label": ctr_label(ctr_pct),
+        "features": {**text_features, **image_defaults}
     }
-
 
 
 # ======================================================
@@ -182,27 +201,38 @@ async def predict_image_ad(file: UploadFile = File(...)):
 
     ocr_text = extract_ocr_text(img)
 
-    text_feats = [
-        sentiment_score(ocr_text),
-        capital_ratio(ocr_text),
-        persuasion_score(ocr_text),
-        cta_score(ocr_text),
-        readability_score(ocr_text)
-    ]
+    text_features = {
+        "sentiment_score": sentiment_score(ocr_text),
+        "capital_ratio": capital_ratio(ocr_text),
+        "persuasion_score": persuasion_score(ocr_text),
+        "cta_score": cta_score(ocr_text),
+        "readability_score": readability_score(ocr_text)
+    }
 
-    img_feats = extract_image_features(img)
+    img_feature_values = extract_image_features(img)
+    image_features = {
+        "brightness": img_feature_values[0],
+        "contrast": img_feature_values[1],
+        "sharpness": img_feature_values[2],
+        "edge_density": img_feature_values[3],
+        "face_present": img_feature_values[4]
+    }
 
-    features = np.array([text_feats + img_feats], dtype=np.float32)
+    features_array = np.array([[ 
+        *text_features.values(),
+        *image_features.values()
+    ]], dtype=np.float32)
 
-    ctr = float(model.predict(features)[0])
+    ctr = float(model.predict(features_array)[0])
     ctr_pct = np.clip(ctr * 100, 0.0, 100.0)
 
     return {
         "input_type": "image",
         "ocr_text": ocr_text,
-        "predicted_ctr": round(ctr_pct, 2) 
+        "predicted_ctr": round(ctr_pct, 2),
+        "ctr_label": ctr_label(ctr_pct),
+        "features": {**text_features, **image_features}
     }
-
 
 
 # --------------------
