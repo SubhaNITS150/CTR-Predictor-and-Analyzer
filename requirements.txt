@@ -11,3 +11,4 @@ fastapi
 uvicorn
 pytesseract
 python-multipart
+google-genai

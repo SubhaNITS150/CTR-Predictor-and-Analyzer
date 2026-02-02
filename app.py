@@ -12,6 +12,9 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+from llm_reasoning import generate_llm_analysis
+import json
+
 from fastapi.middleware.cors import CORSMiddleware
 
 # --------------------
@@ -175,12 +178,21 @@ def predict_text_ad(req: TextAdRequest):
     ctr = float(model.predict(features_array)[0])
     ctr_pct = np.clip(ctr * 100, 0.0, 100.0)
 
+    analysis = generate_llm_analysis(
+        input_type="text",
+        ctr_pct=ctr_pct,
+        features={**text_features, **image_defaults},
+        ad_text=text
+    )
+
     return {
         "input_type": "text",
         "predicted_ctr": round(ctr_pct, 2),
         "ctr_label": ctr_label(ctr_pct),
-        "features": {**text_features, **image_defaults}
+        "features": {**text_features, **image_defaults},
+        "analysis": analysis
     }
+
 
 
 # ======================================================
@@ -226,13 +238,23 @@ async def predict_image_ad(file: UploadFile = File(...)):
     ctr = float(model.predict(features_array)[0])
     ctr_pct = np.clip(ctr * 100, 0.0, 100.0)
 
+    analysis = generate_llm_analysis(
+        input_type="image",
+        ctr_pct=ctr_pct,
+        features={**text_features, **image_features},
+        ad_text=ocr_text
+    )
+
     return {
         "input_type": "image",
         "ocr_text": ocr_text,
         "predicted_ctr": round(ctr_pct, 2),
         "ctr_label": ctr_label(ctr_pct),
-        "features": {**text_features, **image_features}
+        "features": {**text_features, **image_features},
+        "analysis": analysis
     }
+
+
 
 
 # --------------------
