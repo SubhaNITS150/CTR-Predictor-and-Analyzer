@@ -47,37 +47,3 @@ This project develops an intelligent engine for analyzing ad text with the help 
 ## Demo
 
 [https://ctr-predictor-frontend.vercel.app/]
-## Documentation
-
-## 🐳 Run the Project Using Docker
-
-This project supports containerized execution using Docker, allowing it to run consistently across environments without manual dependency setup.
-
----
-
-### 📌 Prerequisites
-- Docker installed on your system  
-  https://docs.docker.com/get-docker/
-
-Verify installation:
-```bash
-docker --version 
-```
-
-###  Build the Docker Image
-- From the project root directory, run:
-```bash
-docker build -t ad-ctr-engine .
-```
-
-### Run the Docker Container
-- From the project root directory, run:
-```bash
-docker run -p 8501:8501 ad-ctr-engine
-```
-
-### Access the application
-- Open Browser and run:
-```bash
-http://localhost:8501
-```
